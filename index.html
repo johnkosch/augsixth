@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Augmented Sixth Chord Spelling</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#202124;background:#f4f5f7}*{box-sizing:border-box}body{margin:0}.wrap{max-width:1000px;margin:auto;padding:26px 18px 42px}h1{margin:0 0 6px;font-size:29px}.intro{margin:0 0 20px;color:#555;line-height:1.45}.card{background:white;border:1px solid #ddd;border-radius:14px;padding:20px;margin:15px 0;box-shadow:0 2px 8px #00000008}.prompt{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.key{font-size:25px;font-weight:650}.rn{font-size:34px;font-weight:700}.staff{width:100%;height:auto;display:block;background:white;border:1px solid #ddd;border-radius:9px;touch-action:manipulation}.controls{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-top:13px}button{font:inherit;padding:9px 13px;border:1px solid #bbb;border-radius:8px;background:white;cursor:pointer}button.primary{background:#202124;color:white;border-color:#202124}button:focus-visible{outline:3px solid #5598e8;outline-offset:2px}.acc{margin-left:auto;display:flex;align-items:center;gap:5px}.acc button{font-size:21px;min-width:43px}#feedback{font-weight:650;font-size:18px;min-height:28px;margin-top:14px}.good{color:#167139}.bad{color:#b42318}.hint{font-size:14px;color:#666;margin:9px 0 0}.stats{color:#666;font-size:14px;margin-left:auto}.instructions{font-size:14px;color:#555;margin:0 0 12px}@media(max-width:600px){.card{padding:13px}.acc{margin-left:0}.stats{margin-left:0}.key{font-size:22px}}
+</style>
+</head><body><main class="wrap">
+<h1>Augmented Sixth Chord Spelling</h1>
+<p class="intro">Spell the indicated augmented-sixth chord in the given major key. Identify the chord's nationality and enter its four notes.</p>
+<section class="card"><div class="prompt">
+<div><div class="hint">MAJOR KEY</div><div id="keyName" class="key">C major</div></div>
+<div><div class="hint">CHORD TYPE</div><div id="chordPrompt" class="rn">Italian +6</div></div>
+<div class="stats" id="score">Correct: 0</div></div></section>
+<section class="card"><h2 style="margin-top:0">Your chord</h2>
+<p class="instructions" id="instructions"></p>
+<canvas id="staff" class="staff" width="1000" height="430" aria-label="Interactive grand staff with treble and bass clefs. Click to place four chord notes."></canvas>
+<div class="controls"><button id="check" class="primary">Check Answer</button><button id="undo">Undo</button><button id="duplicate">Double Selected Note</button><button id="clear">Clear</button>
+<div class="acc"><span>Accidental:</span><button data-acc="doubleFlat" aria-label="Double flat">𝄫</button><button data-acc="flat" aria-label="Flat">♭</button><button data-acc="natural" aria-label="Natural">♮</button><button data-acc="sharp" aria-label="Sharp">♯</button><button data-acc="doubleSharp" aria-label="Double sharp">𝄪</button></div></div>
+<div id="feedback" role="status" aria-live="polite"></div>
+<div class="controls"><button id="new" class="primary">New Exercise</button><button id="show">Show Solution</button></div>
+</section></main><script>
+const canvas=document.getElementById('staff'),ctx=canvas.getContext('2d');
+const LETTERS=['C','D','E','F','G','A','B'],li={C:0,D:1,E:2,F:3,G:4,A:5,B:6},nat={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+const majors=[
+{name:'C major',tonic:'C',sig:{}},
+{name:'G major',tonic:'G',sig:{F:'sharp'}},
+{name:'D major',tonic:'D',sig:{F:'sharp',C:'sharp'}},
+{name:'A major',tonic:'A',sig:{F:'sharp',C:'sharp',G:'sharp'}},
+{name:'E major',tonic:'E',sig:{F:'sharp',C:'sharp',G:'sharp',D:'sharp'}},
+{name:'B major',tonic:'B',sig:{F:'sharp',C:'sharp',G:'sharp',D:'sharp',A:'sharp'}},
+{name:'F♯ major',tonic:'F',sig:{F:'sharp',C:'sharp',G:'sharp',D:'sharp',A:'sharp',E:'sharp'}},
+{name:'C♯ major',tonic:'C',sig:{F:'sharp',C:'sharp',G:'sharp',D:'sharp',A:'sharp',E:'sharp',B:'sharp'}},
+{name:'F major',tonic:'F',sig:{B:'flat'}},
+{name:'B♭ major',tonic:'B',sig:{B:'flat',E:'flat'}},
+{name:'E♭ major',tonic:'E',sig:{B:'flat',E:'flat',A:'flat'}},
+{name:'A♭ major',tonic:'A',sig:{B:'flat',E:'flat',A:'flat',D:'flat'}},
+{name:'D♭ major',tonic:'D',sig:{B:'flat',E:'flat',A:'flat',D:'flat',G:'flat'}},
+{name:'G♭ major',tonic:'G',sig:{B:'flat',E:'flat',A:'flat',D:'flat',G:'flat',C:'flat'}},
+{name:'C♭ major',tonic:'C',sig:{B:'flat',E:'flat',A:'flat',D:'flat',G:'flat',C:'flat',F:'flat'}}
+];
+const sharpOrder=['F','C','G','D','A','E','B'],flatOrder=['B','E','A','D','G','C','F'];
+let task,notes=[],selected=-1,score=0,previousPrompt=null,phase='spell',sourceNotes=[],resolution=null;
+const spacing=30,topY=55,stepY=15,trebleBottom=topY+4*spacing,bassTop=trebleBottom+4*stepY;
+function rand(a){return a[Math.floor(Math.random()*a.length)]}
+function accVal(a){return a==='sharp'?1:a==='flat'?-1:a==='doubleSharp'?2:a==='doubleFlat'?-2:0}
+function pitchMidi(p){return 12*(p.octave+1)+nat[p.name]+accVal(p.acc)}
+function staffAbs(p){return li[p.name]+7*p.octave}
+function yStep(s){return trebleBottom-s*stepY}
+function ref(){return li.E+7*4}
+function pitchAt(s,acc){let a=ref()+s,name=LETTERS[((a%7)+7)%7];return{name,octave:Math.floor(a/7),acc:acc??(task.key.sig[name]||'natural'),forceNatural:false}}
+function pitchForDegree(k,degree,semitones){
+ const tonicIndex=li[k.tonic],letter=LETTERS[(tonicIndex+degree)%7],octave=4+Math.floor((tonicIndex+degree)/7);
+ const tonicPc=(nat[k.tonic]+accVal(k.sig[k.tonic]||'natural'))%12,desired=((tonicPc+semitones)%12+12)%12;
+ let diff=((desired-nat[letter]+18)%12)-6;
+ return{name:letter,octave,acc:diff===1?'sharp':diff===-1?'flat':diff===2?'doubleSharp':diff===-2?'doubleFlat':diff===0?'natural':diff>0?'sharp':'flat'};
+}
+function sameSpelling(a,b){return a.name===b.name&&a.acc===b.acc}
+function samePitch(a,b){return sameSpelling(a,b)&&a.octave===b.octave}
+function chordFor(k,type){
+ const le=pitchForDegree(k,5,8),doNote=pitchForDegree(k,0,0),fi=pitchForDegree(k,3,6);
+ const re=pitchForDegree(k,1,2),me=pitchForDegree(k,2,3),ri=pitchForDegree(k,1,3);
+ const tones=type==='Italian'?[le,doNote,doNote,fi]:type==='French'?[le,doNote,re,fi]:[le,doNote,me,fi];
+ return {tones,le,fi,ri};
+}
+function newTask(){
+ // Reset the entire exercise state so a new prompt always starts in spelling phase.
+ phase='spell';sourceNotes=[];resolution=null;notes=[];selected=-1;
+ const key=rand(majors.filter(k=>k.name!==previousPrompt));
+ previousPrompt=key.name;
+ const type=rand(['Italian','French','German']);
+ task={key,type,...chordFor(key,type)};
+ notes=[];selected=-1;
+ document.getElementById('keyName').textContent=key.name;
+ document.getElementById('chordPrompt').textContent=type+' +6';
+ document.getElementById('staff').setAttribute('aria-label',`Interactive grand staff showing the key signature for ${key.name}. Enter four notes for a ${type} augmented-sixth chord.`);
+ document.getElementById('instructions').textContent='';
+ const f=document.getElementById('feedback');f.textContent='';f.className='';draw();
+}
+function accidentalGlyph(a){return a==='sharp'?'♯':a==='flat'?'♭':a==='natural'?'♮':a==='doubleSharp'?'𝄪':a==='doubleFlat'?'𝄫':''}
+function drawClefs(){ctx.fillStyle='#111';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='190px serif';ctx.fillText('𝄞',76,topY+2*spacing);ctx.font='150px serif';ctx.fillText('𝄢',76,bassTop+2*spacing)}
+function drawKeySignature(){
+ const sig=task.key.sig,order=Object.keys(sig).length?(Object.values(sig)[0]==='sharp'?sharpOrder:flatOrder):[];
+ const isSharp=order===sharpOrder;
+ const trebleOctave=isSharp?{F:5,C:5,G:5,D:5,A:4,E:5,B:4}:{B:4,E:5,A:4,D:5,G:4,C:5,F:4};
+ const bassOctave=isSharp?{F:3,C:3,G:3,D:3,A:2,E:3,B:2}:{B:2,E:3,A:2,D:3,G:2,C:3,F:2};
+ for(const octaves of [trebleOctave,bassOctave]){let x=155;for(let name of order){if(!sig[name])continue;let yy=yStep(staffAbs({name,octave:octaves[name]})-ref());ctx.font='32px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#111';ctx.fillText(accidentalGlyph(sig[name]),x,yy);x+=27}}
+}
+function chordNoteOffset(chord,index){
+ const here=staffAbs(chord[index]),unisons=[];
+ chord.forEach((p,j)=>{if(samePitch(p,chord[index]))unisons.push(j)});
+ if(unisons.length>1)return(unisons.indexOf(index)-(unisons.length-1)/2)*16;
+ let lower=false,upper=false;chord.forEach((p,j)=>{if(j===index)return;let other=staffAbs(p);if(other===here-1)lower=true;if(other===here+1)upper=true});
+ if(lower&&!upper)return 12;if(upper&&!lower)return -12;return 0;
+}
+function drawNote(p,xx,isSelected,chord,index){
+ const nx=xx+chordNoteOffset(chord,index),step=staffAbs(p)-ref(),yy=yStep(step);
+ ctx.strokeStyle='#222';ctx.lineWidth=2;
+ if(step===-2||step<-2&&step%2===0){ctx.beginPath();ctx.moveTo(nx-24,yy);ctx.lineTo(nx+24,yy);ctx.stroke()}
+ if(step<-12)for(let q=-14;q>=step;q-=2){ctx.beginPath();ctx.moveTo(nx-24,yStep(q));ctx.lineTo(nx+24,yStep(q));ctx.stroke()}
+ if(step>8)for(let q=10;q<=step;q+=2){ctx.beginPath();ctx.moveTo(nx-24,yStep(q));ctx.lineTo(nx+24,yStep(q));ctx.stroke()}
+ if(isSelected){ctx.strokeStyle='#4285f4';ctx.lineWidth=3;ctx.beginPath();ctx.arc(nx,yy,25,0,Math.PI*2);ctx.stroke()}
+ ctx.fillStyle='#111';ctx.beginPath();ctx.ellipse(nx,yy,16,10,-.35,0,Math.PI*2);ctx.fill();
+ const keyAcc=task.key.sig[p.name]||'natural';if(p.acc!==keyAcc||p.forceNatural){ctx.font='32px serif';ctx.textAlign='center';ctx.fillText(accidentalGlyph(p.acc),nx-30,yy)}
+}
+function draw(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);ctx.strokeStyle='#222';ctx.lineWidth=2;
+ for(let i=0;i<5;i++)for(const y0 of [topY,bassTop]){ctx.beginPath();ctx.moveTo(24,y0+i*spacing);ctx.lineTo(970,y0+i*spacing);ctx.stroke()}
+ drawClefs();drawKeySignature();
+ if(phase==='resolve'){sourceNotes.forEach((p,i)=>drawNote(p,365,false,sourceNotes,i));notes.forEach((p,i)=>drawNote(p,700,i===selected,notes,i))}
+ else notes.forEach((p,i)=>drawNote(p,520,i===selected,notes,i));
+}
+function canvasPoint(e){let r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*canvas.width/r.width,y:(e.clientY-r.top)*canvas.height/r.height}}
+canvas.addEventListener('click',e=>{
+ let q=canvasPoint(e),noteX=phase==='resolve'?700:520;
+ for(let i=0;i<notes.length;i++){let yy=yStep(staffAbs(notes[i])-ref()),xx=noteX+chordNoteOffset(notes,i);if(Math.hypot(q.x-xx,q.y-yy)<27){selected=i;draw();return}}
+ if(phase==='resolve'&&q.x<520)return;
+ if(notes.length>=4)return;
+ let st=Math.round((trebleBottom-q.y)/stepY);notes.push(pitchAt(st));selected=notes.length-1;
+ const f=document.getElementById('feedback');f.textContent='';f.className='';draw();
+});
+document.querySelectorAll('[data-acc]').forEach(b=>b.onclick=()=>{if(selected<0)return;notes[selected].acc=b.dataset.acc;notes[selected].forceNatural=b.dataset.acc==='natural';draw()});
+function move(d){if(selected<0)return;let s=staffAbs(notes[selected])-ref()+d,p=pitchAt(s);p.acc=task.key.sig[p.name]||'natural';p.forceNatural=false;notes[selected]=p;draw()}
+document.addEventListener('keydown',e=>{if(e.key==='ArrowUp'){e.preventDefault();move(1)}if(e.key==='ArrowDown'){e.preventDefault();move(-1)}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z')undo()});
+function undo(){if(notes.length){notes.pop();selected=notes.length-1;draw()}}
+document.getElementById('undo').onclick=undo;
+document.getElementById('duplicate').onclick=()=>{const f=document.getElementById('feedback');if(selected<0){f.className='bad';f.textContent='Select a note to double first.';return}if(notes.length>=4){f.className='bad';f.textContent='All four notes are already entered.';return}notes.push({...notes[selected]});selected=notes.length-1;draw()};
+document.getElementById('clear').onclick=()=>{notes=[];selected=-1;let f=document.getElementById('feedback');f.textContent='';f.className='';draw()};
+function chromaticStep(p,dir){
+ const abs=staffAbs(p)+dir,name=LETTERS[((abs%7)+7)%7],octave=Math.floor(abs/7);
+ const desired=pitchMidi(p)+dir,diff=desired-(12*(octave+1)+nat[name]);
+ const acc=({2:'doubleSharp',1:'sharp',0:'natural','-1':'flat','-2':'doubleFlat'})[diff];
+ return acc===undefined?null:{name,octave,acc};
+}
+function diatonicStep(p,dir){
+ const abs=staffAbs(p)+dir,name=LETTERS[((abs%7)+7)%7],octave=Math.floor(abs/7);
+ return {name,octave,acc:task.key.sig[name]||'natural'};
+}
+function destinationTones(){
+ return resolution==='I64'?[pitchForDegree(task.key,4,7),pitchForDegree(task.key,0,0),pitchForDegree(task.key,2,4)]:[pitchForDegree(task.key,4,7),pitchForDegree(task.key,6,11),pitchForDegree(task.key,1,2)];
+}
+function isDestinationTone(p){return destinationTones().some(t=>sameSpelling(p,t))}
+function containsAllDestinationTones(actual){return destinationTones().every(t=>actual.some(p=>sameSpelling(p,t)))}
+function resolutionCandidateSets(){
+ return sourceNotes.map(src=>{
+  if(sameSpelling(src,task.fi)){const p=chromaticStep(src,1);return p&&pitchMidi(p)-pitchMidi(src)===1?[p]:[]}
+  if(sameSpelling(src,task.le)){const p=chromaticStep(src,-1);return p&&pitchMidi(src)-pitchMidi(p)===1?[p]:[]}
+  const candidates=[{...src},diatonicStep(src,1),diatonicStep(src,-1)],unique=[];
+  // In a German +6 resolving to I6/4, lowered 3 (me) may rise by
+  // augmented unison to 3 (mi): same letter and octave, raised a semitone.
+  if(task.type==='German'&&sameSpelling(src,task.tones[2])){
+   const mi={...pitchForDegree(task.key,2,4),octave:src.octave};
+   if(pitchMidi(mi)-pitchMidi(src)===1)candidates.push(mi);
+  }
+  for(const p of candidates)if(isDestinationTone(p)&&!unique.some(q=>samePitch(p,q)))unique.push(p);
+  return unique;
+ });
+}
+function canMatchResolution(actual,sets){
+ const remaining=actual.map(n=>({...n}));
+ function visit(i){if(i===sets.length)return remaining.length===0;for(const p of sets[i]){const j=remaining.findIndex(n=>samePitch(n,p));if(j>=0){const [used]=remaining.splice(j,1);if(visit(i+1))return true;remaining.splice(j,0,used)}}return false}
+ return visit(0);
+}
+function upperVoiceSpacingOk(pitches){
+ if(pitches.length!==4)return false;
+ const ordered=[...pitches].sort((a,b)=>pitchMidi(a)-pitchMidi(b));
+ // As in the Neapolitan app, tenor–alto and alto–soprano cannot exceed an octave.
+ return pitchMidi(ordered[2])-pitchMidi(ordered[1])<=12 &&
+        pitchMidi(ordered[3])-pitchMidi(ordered[2])<=12;
+}
+function preferredSpellingSolution(){
+ const candidates=[];
+ for(let a=2;a<=4;a++)for(let b=3;b<=5;b++)for(let c=3;c<=5;c++)for(let d=3;d<=5;d++){
+  const chord=task.tones.map((p,i)=>({...p,octave:[a,b,c,d][i]}));
+  if(!upperVoiceSpacingOk(chord))continue;
+  const le=chord.filter(p=>sameSpelling(p,task.le));
+  const fi=chord.filter(p=>sameSpelling(p,task.fi));
+  if(Math.min(...le.map(pitchMidi))>=Math.max(...fi.map(pitchMidi)))continue;
+  const ordered=[...chord].sort((x,y)=>pitchMidi(x)-pitchMidi(y));
+  // Keep bass and tenor at least a sixth apart, matching the Neapolitan examples.
+  if(pitchMidi(ordered[1])-pitchMidi(ordered[0])<8)continue;
+  candidates.push(chord);
+ }
+ candidates.sort((a,b)=>{
+  const aa=[...a].sort((x,y)=>pitchMidi(x)-pitchMidi(y));
+  const bb=[...b].sort((x,y)=>pitchMidi(x)-pitchMidi(y));
+  const score=x=>Math.abs(pitchMidi(x[0])-48)+Math.abs(pitchMidi(x[1])-60)+Math.abs(pitchMidi(x[2])-67)+Math.abs(pitchMidi(x[3])-72);
+  return score(aa)-score(bb);
+ });
+ return candidates[0]||null;
+}
+function bestResolutionSolution(){
+ const sets=resolutionCandidateSets(),solutions=[];
+ function build(i,arr){if(i===sets.length){if(containsAllDestinationTones(arr)&&upperVoiceSpacingOk(arr))solutions.push(arr);return}for(const p of sets[i])build(i+1,[...arr,{...p}])}
+ build(0,[]);
+ solutions.sort((a,b)=>(a.length-new Set(a.map(p=>`${p.name}:${p.acc}:${p.octave}`)).size)-(b.length-new Set(b.map(p=>`${p.name}:${p.acc}:${p.octave}`)).size));
+ return solutions[0]||null;
+}
+function beginResolution(){
+ sourceNotes=notes.map(n=>({...n}));resolution=rand(task.type==='Italian'?['V']:task.type==='German'?['I64']:['I64','V']);phase='resolve';notes=[];selected=-1;
+ document.getElementById('chordPrompt').innerHTML=resolution==='I64'?'I<sup>6<sub>4</sub></sup>':'V';
+ document.getElementById('instructions').textContent='Resolve the chord shown on the left. fi rises by half-step, le falls by half-step; the other voices may stay on a common tone or move by step to a chord tone.';
+ const f=document.getElementById('feedback');f.className='good';f.textContent=`✓ Correctly spelled ${task.type} +6. Now resolve to ${resolution==='I64'?'I⁶₄':'V'}.`;
+ draw();
+}
+function check(){
+ const f=document.getElementById('feedback');
+ if(notes.length!==4){f.className='bad';f.textContent=`Enter four notes before checking. You have entered ${notes.length}.`;return}
+ if(!upperVoiceSpacingOk(notes)){f.className='bad';f.textContent='Check the spacing: tenor–alto and alto–soprano must each be within an octave.';return}
+ if(phase==='spell'){
+  const matchesRequired=required=>{const remaining=notes.map(n=>({...n}));for(const wanted of required){const i=remaining.findIndex(n=>sameSpelling(n,wanted));if(i<0)return false;remaining.splice(i,1)}return remaining.length===0};
+  const standard=task.tones.map(n=>({...n})),accepted=task.type==='German'?[standard,[task.le,task.tones[1],task.ri,task.fi]]:[standard];
+  if(!accepted.some(matchesRequired)){f.className='bad';f.textContent=`Not quite. A ${task.type} +6 chord requires ${task.type==='Italian'?'le, two dos, and fi':task.type==='French'?'le, do, re, and fi':'le, do, and fi, plus either me (lowered 3) or ri (raised 2)'}. Check the note spellings.`;return}
+  const le=notes.filter(n=>sameSpelling(n,task.le)),fi=notes.filter(n=>sameSpelling(n,task.fi));
+  if(Math.min(...le.map(pitchMidi))>=Math.max(...fi.map(pitchMidi))){f.className='bad';f.textContent='The chord tones are correct, but le (lowered 6) must be voiced below fi (raised 4).';return}
+  beginResolution();return;
+ }
+ if(!canMatchResolution(notes,resolutionCandidateSets())){f.className='bad';f.textContent='Not quite. fi must rise by half-step, le must fall by half-step, and each remaining voice must stay on a common tone or move by step to a chord tone (including me rising by augmented unison to mi).';return}
+ if(!containsAllDestinationTones(notes)){f.className='bad';f.textContent=`Your voice leading is valid, but the ${resolution==='I64'?'I⁶₄':'V'} chord must include all three chord tones: ${destinationTones().map(p=>p.name+(p.acc==='sharp'?'♯':p.acc==='flat'?'♭':p.acc==='doubleSharp'?'𝄪':p.acc==='doubleFlat'?'𝄫':'')).join(', ')}.`;return}
+ score++;document.getElementById('score').textContent='Correct: '+score;f.className='good';f.textContent='✓ Correct resolution! New exercise coming up…';setTimeout(()=>newTask(),1500);
+}
+document.getElementById('check').onclick=check;
+document.getElementById('new').onclick=newTask;
+document.getElementById('show').onclick=()=>{
+ if(phase==='spell'){const solution=preferredSpellingSolution();if(!solution){const f=document.getElementById('feedback');f.className='bad';f.textContent='No conventionally spaced solution could be generated.';return}notes=solution;selected=-1;draw();const f=document.getElementById('feedback');f.className='';f.textContent='The augmented-sixth chord spelling is shown.'}
+ else{const solution=bestResolutionSolution();if(!solution){const f=document.getElementById('feedback');f.className='bad';f.textContent='A resolution solution could not be generated for this voicing.';return}notes=solution;selected=-1;draw();const f=document.getElementById('feedback');f.className='';f.textContent='The resolution solution is shown.'}
+};
+newTask();
+</script></body></html>
